@@ -14,20 +14,25 @@
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
 
+from collections import OrderedDict
+
 import eventlet
 from eventlet import wsgi
 from webob import dec, exc, Response as Resp
+
+from log import logger
+from utils import isapp, isfilter, add_filters, Urlwrap
 
 
 class WSGIService(object):
     """Server class to manage a WSGI server, serving a WSGI application."""
 
-    def __init__(self, app, host=None, port=None, middlewares=None):
+    def __init__(self, app, host=None, port=None, filters=None):
         self.app = app
         self._host = host or '127.0.0.1'
         self._port = port or 8080
         self._socket = self._get_socket(self._host, self._port)
-        self._middlewares = middlewares
+        self._filters = filters
 
     def _get_socket(self, host, port):
         bind_addr = (host, port)
@@ -40,8 +45,8 @@ class WSGIService(object):
         :returns: None
 
         """
-        for middle in self._middlewares:
-            self.app = middle.factory(self.app)
+        for f in self._filters:
+            self.app = f.factory(self.app)
         wsgi.server(self._socket, self.app)
 
     @property
@@ -53,14 +58,23 @@ class WSGIService(object):
         return self._port
 
 
-from utils import mapper
-
-
 class Application(object):
-    """Base WSGI application wrapper. Subclasses need to implement process_request."""
+    """
+    Base WSGI application wrapper.
+    Subclasses need to implement process_request.
+     """
+    filters = []
+    url_funcs = OrderedDict()
+
+    def __new__(cls, *args, **kwargs):
+        app = super(Application, cls).__new__(cls)
+        return add_filters(app, cls.filters)
+
+    # def __init__(self, *args, **kwargs):
+    #     self.route_url = None
 
     @dec.wsgify
-    def __call__(self, req):
+    def __call__(self, req, **kwargs):
         response = self.process_request(req)
         return response
 
@@ -68,11 +82,14 @@ class Application(object):
         func = mapper.match(req)
         if func is None:
             return exc.HTTPNotFound()
-        response = func(self, req)
-        return response
+        return func(self, req)
+
+    @staticmethod
+    def bind(url, func, **kwargs):
+        Application.url_funcs[Urlwrap(url, **kwargs)] = func
 
 
-class Middleware(object):
+class Filter(object):
 
     @classmethod
     def factory(cls, application):
@@ -106,3 +123,48 @@ class Middleware(object):
 
 class Response(Resp):
     pass
+
+
+from utils import mapper
+
+
+class MainHandler(object):
+    """
+
+    """
+    def __init__(self, *apps):
+        self.apps = []
+        self.app_names = []
+        for app in apps:
+            self.add_app(app)
+
+    @dec.wsgify
+    def __call__(self, req):
+        app, kwargs = mapper.match(req)
+        if app is None:
+            return exc.HTTPNotFound()
+
+        app = self.get_app(app)
+        return app(req, **kwargs)
+
+    def get_app(self, app):
+        try:
+            i = self.app_names.index(app.__name__)
+        except ValueError:
+            logger.error('not found app')
+            raise Exception()
+        else:
+            return self.apps[i]
+
+    def add_app(self, app):
+        if issubclass(app, Application):
+            self.apps.append(app())
+            self.app_names.append(app.__name__)
+            return None
+        if not hasattr(app, '__wsgi_app__'):
+            logger.error('not a app')
+            raise Exception()
+        self.apps.append(app)
+        self.app_names.append(app.__name__)
+
+
