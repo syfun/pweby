@@ -15,33 +15,27 @@
 #   limitations under the License.
 
 
-from wsgi import WSGIService, Application, Response, Middleware
-from utils import route
+from wsgi import WSGIService, Response, MainHandler
+from utils import route, Application, Filter
 
 
-class Test(Middleware):
-    def process_request(self, req):
-        return None
-
-    def process_response(self, response):
-        response.write('Test middleware')
-        return response
+class Filter1(Filter):
+    pass
 
 
-class Test1(Middleware):
-    def process_response(self, response):
-        response.write('TEst1')
-        return response
+class Filter2(Filter):
+    pass
 
 
-@route('/test')
 class Hello(Application):
+    prefix = '/1'
+    filters = [Filter1, Filter2]
 
-    @route('/')
+    @route('/2')
     def hello(self, req):
         return Response('hello')
 
 
-middlewares = [Test, Test1]
-service = WSGIService(Hello(), middlewares=middlewares)
+handler = MainHandler(Hello)
+service = WSGIService(handler)
 service.start()

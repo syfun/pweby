@@ -14,14 +14,12 @@
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
 
-from collections import OrderedDict
-
 import eventlet
 from eventlet import wsgi
-from webob import dec, exc, Response as Resp
+from webob import dec, exc, Response as Resp, Request as Req
 
 from log import logger
-from utils import isapp, isfilter, add_filters, Urlwrap
+from utils import is_wsgifunc, Application
 
 
 class WSGIService(object):
@@ -45,8 +43,9 @@ class WSGIService(object):
         :returns: None
 
         """
-        for f in self._filters:
-            self.app = f.factory(self.app)
+        if self._filters:
+            for f in self._filters:
+                self.app = f.factory(self.app)
         wsgi.server(self._socket, self.app)
 
     @property
@@ -58,67 +57,8 @@ class WSGIService(object):
         return self._port
 
 
-class Application(object):
-    """
-    Base WSGI application wrapper.
-    Subclasses need to implement process_request.
-     """
-    filters = []
-    url_funcs = OrderedDict()
-
-    def __new__(cls, *args, **kwargs):
-        app = super(Application, cls).__new__(cls)
-        return add_filters(app, cls.filters)
-
-    # def __init__(self, *args, **kwargs):
-    #     self.route_url = None
-
-    @dec.wsgify
-    def __call__(self, req, **kwargs):
-        response = self.process_request(req)
-        return response
-
-    def process_request(self, req):
-        func = mapper.match(req)
-        if func is None:
-            return exc.HTTPNotFound()
-        return func(self, req)
-
-    @staticmethod
-    def bind(url, func, **kwargs):
-        Application.url_funcs[Urlwrap(url, **kwargs)] = func
-
-
-class Filter(object):
-
-    @classmethod
-    def factory(cls, application):
-        return cls(application)
-
-    def __init__(self, application):
-        self.application = application
-
-    @dec.wsgify
-    def __call__(self, req):
-        response = self.process_request(req)
-        if response:
-            return response
-        response = req.get_response(self.application)
-        return self.process_response(response)
-
-    def process_request(self, req):
-        """Called on each request.
-
-        If this returns None, the next application down the stack will be
-        executed. If it returns a response then that response will be returned
-        and execution will stop here.
-
-        """
-        return None
-
-    def process_response(self, response):
-        """Do whatever you'd like to the response."""
-        return response
+class Request(Req):
+    pass
 
 
 class Response(Resp):
@@ -144,12 +84,29 @@ class MainHandler(object):
         if app is None:
             return exc.HTTPNotFound()
 
-        app = self.get_app(app)
-        return app(req, **kwargs)
+        if is_wsgifunc(app):
+            app_name = app.__name__
+        else:
+            app_class = app.im_class
+            app_class.func_name = app.__name__
+            app_class.func_kwargs = kwargs
+            app_name = app_class.__name__
+        try:
+            i = self.app_names.index(app_name)
+        except ValueError:
+            logger.error('not found app')
+            raise Exception()
+        else:
+            return req.get_response(self.apps[i])
 
     def get_app(self, app):
+        if is_wsgifunc(app):
+            app_name = app.func.__name__
+        else:
+            app_class = app.func.im_class
+            app_name = app_class.__name__
         try:
-            i = self.app_names.index(app.__name__)
+            i = self.app_names.index(app_name)
         except ValueError:
             logger.error('not found app')
             raise Exception()
@@ -161,7 +118,7 @@ class MainHandler(object):
             self.apps.append(app())
             self.app_names.append(app.__name__)
             return None
-        if not hasattr(app, '__wsgi_app__'):
+        if not is_wsgifunc(app):
             logger.error('not a app')
             raise Exception()
         self.apps.append(app)
