@@ -15,27 +15,8 @@
 #   limitations under the License.
 
 
-from wsgi import WSGIService, Response, MainHandler
-from utils import route, Application, Filter
+from wsgi import *
+from utils import *
 
-
-class Filter1(Filter):
-    pass
-
-
-class Filter2(Filter):
-    pass
-
-
-class Hello(Application):
-    prefix = '/<year>'
-    prefix_add = {'year': r'^\d+$'}
-    filters = [Filter1, Filter2]
-
-    @route('/<day>', add={'day': r'^\d+$'})
-    def hello(self, req, year, day):
-        return Response(year+day)
-
-
-service = WSGIService(Hello)
-service.start()
+__all__ = ['Application', 'Filter', 'MainHandler', 'WSGIService',
+           'Response', 'route']
