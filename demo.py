@@ -27,15 +27,22 @@ class Filter2(Filter):
     pass
 
 
-class Hello(Application):
-    prefix = '/<year>'
-    prefix_add = {'year': r'^\d+$'}
+class Hello1(Application):
+    prefix = '/{year}/{month}'
+    prefix_more = {'year': r'\d{2,4}', 'month': r'\d{1,2}'}
     filters = [Filter1, Filter2]
 
-    @route('/<day>', add={'day': r'^\d+$'})
-    def hello(self, req, year, day):
-        return Response(year+day)
+    @route('/{day}', more={'day': R'\d{1,2}'})
+    def hello(self, req, year, month, day):
+        return Response(day)
 
 
-service = WSGIService(Hello)
+class Hello2(Application):
+
+    @route('/index')
+    def hello(self, req):
+        return Response('hello world')
+
+handler = MainHandler(Hello1, Hello2)
+service = WSGIService(handler)
 service.start()

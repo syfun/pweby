@@ -24,83 +24,6 @@ from webob import exc
 from log import logger
 
 
-class Mapper(object):
-
-    def __init__(self):
-        self.url_apps = OrderedDict()
-
-    def bind(self, url, app, **kwargs):
-        self.url_apps[Urlwrap(url, **kwargs)] = app
-
-    def match(self, req):
-        for urlwrap, app in self.url_apps.items():
-            res = urlwrap.match(req)
-            if res:
-                return app, res[1]
-            continue
-        return None, {}
-
-
-class Urlwrap(object):
-    """
-
-    """
-
-    def __init__(self, url, **kwargs):
-        self.url = url
-        self._praser(**kwargs)
-
-    def _praser(self, **kwargs):
-        if not self.url.startswith('/'):
-            raise Exception()
-        self._elements = self.url.lstrip('/').split('/')
-        self._method = kwargs.get('method', None)
-        self._methods = kwargs.get('methods', [])
-        if self._method and self._methods:
-            raise Exception()
-        self._add = kwargs.get('add', {})
-        self._len = len(self._elements)
-
-    def match(self, req):
-        # due with method
-        method = req.method
-        if method != self._method and method not in self._methods:
-            if self._method is not None or self._methods != []:
-                return False
-
-        path = req.path
-        if path == self.url:
-            return True, {}
-
-        # if _elemets is [''], it's url is '/'. So it matches each url.
-        if self._elements == ['']:
-            return True, {}
-
-        elements = path.lstrip('/').split('/')
-        # if length of elements less than _len, not match.
-        if len(elements) != self._len:
-            return False
-        kwargs = {}
-        for ele1, ele2 in zip(elements, self._elements):
-            # example: user, user
-            if ele1 == ele2:
-                continue
-            if ele2.startswith('<') and ele2.endswith('>'):
-                ele2 = ele2.lstrip('<').rstrip('>')
-                if ele2 not in self._add.keys():
-                    # example: user, <user>
-                    kwargs[ele2] = ele1
-                    continue
-                m = re.match(self._add[ele2], ele1)
-                if not m:
-                    return False
-                # exmaple: 2015, <year>(\d{2, 4})
-                kwargs[ele2] = ele1
-                continue
-            return False
-        return True, kwargs
-
-
 class Application(object):
     """
     Base WSGI application wrapper.
@@ -108,13 +31,12 @@ class Application(object):
      """
     filters = []
     prefix = ''
-    prefix_add = {}
+    prefix_more = {}
+    methods = []
 
     def __new__(cls, handler):
         app = super(Application, cls).__new__(cls)
         app.handler = handler
-        prefix = app.prefix
-        prefix_add = app.prefix_add
         _app = add_filters(app, cls.filters)
         for _, func in cls.__dict__.items():
             try:
@@ -124,19 +46,22 @@ class Application(object):
                 continue
             else:
                 # func's priority of request method is higher.
-                prefix_add.update(_kwargs)
-                app.handler.mapper.bind(prefix+_url,
-                                        (_app, func.__name__),
-                                        **prefix_add)
+                _kwargs['requirements'].update(app.prefix_more)
+                _kwargs['conditions']['method'] = app.methods
+                controller = '%s&&&%s' % (str(_app), func.__name__)
+                app.handler.mapper.connect(
+                    app.prefix + _url,
+                    controller=controller,
+                    **_kwargs)
 
         return _app
 
     @wsgify
     def __call__(self, req):
-        _func_name = req.environ['_func_name']
-        _kwargs = req.environ['_kwargs']
-        _func = getattr(self, _func_name)
-        return _func(req, **_kwargs)
+        func_name = req.environ['_func_name']
+        kwargs = req.environ['_kwargs']
+        func = getattr(self, func_name)
+        return func(req, **kwargs)
 
 
 class Filter(object):
@@ -211,27 +136,14 @@ def is_filter(filter):
     return False
 
 
-def check_url(url):
-    """
-
-    :param url:
-    :return:
-    """
-    return True
-
-
 WRAPPER_ASSIGNMENTS = ('__module__', '__name__', '__doc__',
                        '_url', '_kwargs')
 
 
 def route(url, **kwargs):
     """
-    1. @route('/v1')
-       def myfunc(req):
-           pass
-
-    2. class Myclass(Application):
-           @route('/v1')
+        class Myclass(Application):
+           @route('/{year}', more={'year': R'\d{2,4}'}, methods=['GET'])
            def myfunc(self, req):
                pass
 
@@ -239,13 +151,11 @@ def route(url, **kwargs):
     :param kwargs:
     :return:
     """
-    if not check_url(url):
-        logger.error('check error')
-        raise Exception()
-
     def _route(func):
         func._url = url
-        func._kwargs = kwargs
+        func._kwargs = {}
+        func._kwargs['requirements'] = kwargs.get('more', {})
+        func._kwargs['conditions'] = dict(method=kwargs.get('methods', {}))
 
         @functools.wraps(func, assigned=WRAPPER_ASSIGNMENTS)
         def __route(*args, **kwargs):
