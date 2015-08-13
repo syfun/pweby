@@ -15,8 +15,8 @@
 #   limitations under the License.
 
 
-from wsgi import WSGIService, Response, MainHandler
-from utils import route, Application, Filter
+from pweby.wsgi import WSGIService, Response, MainHandler
+from pweby.utils import route, Application, Filter
 
 
 class Filter1(Filter):
