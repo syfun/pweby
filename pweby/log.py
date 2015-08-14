@@ -25,10 +25,22 @@ LOGGING = {
     'disable_existing_loggers': True,
     'formatters': {
         'default': {
-            'format': '%(asctime)s-%(levelname)s-%(name)s-%(message)s'
+            'format': '%(asctime)s %(levelname)s %(name)s %(message)s'
         },
     },
+    'handlers': {
+        # 'null': {
+        #     'level': 'DEBUG',
+        #     'class': 'logging.NullHandler'
+        # },
+        'console': {
+            'level': 'DEBUG',
+            'class': 'logging.StreamHandler',
+            'formatter': 'default'
+        }
+    },
     'root': {
+        'handlers': ['console'],
         'level': 'DEBUG',
     },
 }
@@ -56,3 +68,14 @@ def getLogger(name='unknown'):
     if name not in _loggers:
         _loggers[name] = ContextAdapter(logging.getLogger(name), name)
     return _loggers[name]
+
+
+class WritableLogger(object):
+    """A thin wrapper that responds to `write` and logs."""
+
+    def __init__(self, logger, level=logging.INFO):
+        self.logger = logger
+        self.level = level
+
+    def write(self, msg):
+        self.logger.log(self.level, msg.rstrip())

@@ -14,16 +14,20 @@
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
 
-import eventlet
-eventlet.monkey_patch()
-
-from pweby import log as logging
-from pweby.launcher import ProcessLauncher
-from pweby.wsgi import Application, Response, Server
-from pweby.utils import route
+from setuptools import setup, find_packages
 
 
-version = '0.1.2'
+__version__ = "0.1.1"
 
-
-__all__ = ['Application', 'logging', 'ProcessLauncher', 'Response', 'route', 'Server', 'version']
+setup(
+    name="pweby",
+    version=__version__,
+    packages=find_packages(),
+    install_requires=[
+        "Routes",
+        "eventlet",
+        "greenlet",
+        "six",
+        "webob"
+    ]
+)

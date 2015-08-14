@@ -14,35 +14,14 @@
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
 
-
-from pweby.wsgi import WSGIService, Response, MainHandler
-from pweby.utils import route, Application, Filter
+from pweby import Application, ProcessLauncher, Response, route, Server
 
 
-class Filter1(Filter):
-    pass
+class Hello(Application):
 
-
-class Filter2(Filter):
-    pass
-
-
-class Hello1(Application):
-    prefix = '/{year}/{month}'
-    prefix_more = {'year': r'\d{2,4}', 'month': r'\d{1,2}'}
-    filters = [Filter1, Filter2]
-
-    @route('/{day}', more={'day': R'\d{1,2}'})
-    def hello(self, req, year, month, day):
-        return Response(day)
-
-
-class Hello2(Application):
-
-    @route('/index')
+    @route('/')
     def hello(self, req):
-        return Response('hello world')
+        return Response('Hello world!')
 
-handler = MainHandler(Hello1, Hello2)
-service = WSGIService(handler)
-service.start()
+server = Server(Hello)
+server.serve()

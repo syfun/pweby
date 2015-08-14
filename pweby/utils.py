@@ -17,6 +17,7 @@
 import errno
 import functools
 import gc
+import multiprocessing
 import os
 import pprint
 import socket
@@ -25,11 +26,10 @@ import threading
 import time
 import traceback
 
-
 import eventlet
 from eventlet import backdoor, event, greenpool, greenthread
 import greenlet
-from webob.dec import wsgify
+import six
 
 from pweby import log as logging
 
@@ -37,120 +37,19 @@ from pweby import log as logging
 LOG = logging.getLogger(__name__)
 
 
-class Application(object):
-    """
-    Base WSGI application wrapper.
-    Subclasses need to implement process_request.
-     """
-    filters = []
-    prefix = ''
-    prefix_more = {}
-    methods = []
-
-    def __new__(cls, handler):
-        app = super(Application, cls).__new__(cls)
-        app.handler = handler
-        _app = add_filters(app, cls.filters)
-        for _, func in cls.__dict__.items():
-            try:
-                _url = getattr(func, '_url')
-                _kwargs = getattr(func, '_kwargs')
-            except AttributeError:
-                continue
-            else:
-                # func's priority of request method is higher.
-                _kwargs['requirements'].update(app.prefix_more)
-                _kwargs['conditions']['method'] = app.methods
-                controller = '%s&&&%s' % (str(_app), func.__name__)
-                app.handler.mapper.connect(
-                    app.prefix + _url,
-                    controller=controller,
-                    **_kwargs)
-
-        return _app
-
-    @wsgify
-    def __call__(self, req):
-        func_name = req.environ['_func_name']
-        kwargs = req.environ['_kwargs']
-        func = getattr(self, func_name)
-        return func(req, **kwargs)
-
-
-class Filter(object):
-
-    @classmethod
-    def factory(cls, application):
-        return cls(application)
-
-    def __init__(self, application):
-        self.application = application
-
-    @wsgify
-    def __call__(self, req):
-        response = self.process_request(req)
-        if response:
-            return response
-        response = req.get_response(self.application)
-        return self.process_response(response)
-
-    def process_request(self, req):
-        """Called on each request.
-
-        If this returns None, the next application down the stack will be
-        executed. If it returns a response then that response will be returned
-        and execution will stop here.
-
-        """
-        return None
-
-    def process_response(self, response):
-        """Do whatever you'd like to the response."""
-        return response
-
-
-def add_filters(app, filters):
-    """
-
-    :param app:
-    :param filters:
-    :return:
-    """
-    # _app = deepcopy(app)
-    if filters:
-        filters.reverse()
-        for f in filters:
-            if not is_filter(f):
-                LOG.error('not a middleware')
-                raise Exception()
-            app = f.factory(app)
-    return app
-
-
-def is_app(app):
-    """
-
-    :param app:
-    :return:
-    """
-    if issubclass(app, Application):
-        return True
-    return False
-
-
-def is_filter(filter):
-    """
-
-    :param filter:
-    :return:
-    """
-    if issubclass(filter, Filter):
-        return True
-    return False
-
-
 WRAPPER_ASSIGNMENTS = ('__module__', '__name__', '__doc__',
                        '_url', '_kwargs')
+
+
+def get_worker_count():
+    """Utility to get the default worker count.
+    @return: The number of CPUs if that can be determined, else a default
+             worker count of 1 is returned.
+    """
+    try:
+        return multiprocessing.cpu_count()
+    except NotImplementedError:
+        return 1
 
 
 def route(url, **kwargs):
@@ -557,3 +456,115 @@ def initialize_if_enabled():
     eventlet.spawn_n(eventlet.backdoor.backdoor_server, sock,
                      locals=backdoor_locals)
     return port
+
+
+def set_tcp_keepalive(sock, tcp_keepalive=True,
+                      tcp_keepidle=None,
+                      tcp_keepalive_interval=None,
+                      tcp_keepalive_count=None):
+    """Set values for tcp keepalive parameters
+
+    This function configures tcp keepalive parameters if users wish to do
+    so.
+
+    :param tcp_keepalive: Boolean, turn on or off tcp_keepalive. If users are
+      not sure, this should be True, and default values will be used.
+
+    :param tcp_keepidle: time to wait before starting to send keepalive probes
+    :param tcp_keepalive_interval: time between successive probes, once the
+      initial wait time is over
+    :param tcp_keepalive_count: number of probes to send before the connection
+      is killed
+    """
+
+    # NOTE(praneshp): Despite keepalive being a tcp concept, the level is
+    # still SOL_SOCKET. This is a quirk.
+    if isinstance(tcp_keepalive, bool):
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, tcp_keepalive)
+    else:
+        raise TypeError("tcp_keepalive must be a boolean")
+
+    if not tcp_keepalive:
+        return
+
+    # These options aren't available in the OS X version of eventlet,
+    # Idle + Count * Interval effectively gives you the total timeout.
+    if tcp_keepidle is not None:
+        if hasattr(socket, 'TCP_KEEPIDLE'):
+            sock.setsockopt(socket.IPPROTO_TCP,
+                            socket.TCP_KEEPIDLE,
+                            tcp_keepidle)
+        else:
+            LOG.warning('tcp_keepidle not available on your system')
+    if tcp_keepalive_interval is not None:
+        if hasattr(socket, 'TCP_KEEPINTVL'):
+            sock.setsockopt(socket.IPPROTO_TCP,
+                            socket.TCP_KEEPINTVL,
+                            tcp_keepalive_interval)
+        else:
+            LOG.warning('tcp_keepintvl not available on your system')
+    if tcp_keepalive_count is not None:
+        if hasattr(socket, 'TCP_KEEPCNT'):
+            sock.setsockopt(socket.IPPROTO_TCP,
+                            socket.TCP_KEEPCNT,
+                            tcp_keepalive_count)
+        else:
+            LOG.warning('tcp_keepcnt not available on your system')
+
+
+class save_and_reraise_exception(object):
+    """Save current exception, run some code and then re-raise.
+
+    In some cases the exception context can be cleared, resulting in None
+    being attempted to be re-raised after an exception handler is run. This
+    can happen when eventlet switches greenthreads or when running an
+    exception handler, code raises and catches an exception. In both
+    cases the exception context will be cleared.
+
+    To work around this, we save the exception state, run handler code, and
+    then re-raise the original exception. If another exception occurs, the
+    saved exception is logged and the new exception is re-raised.
+
+    In some cases the caller may not want to re-raise the exception, and
+    for those circumstances this context provides a reraise flag that
+    can be used to suppress the exception.  For example::
+
+      except Exception:
+          with save_and_reraise_exception() as ctxt:
+              decide_if_need_reraise()
+              if not should_be_reraised:
+                  ctxt.reraise = False
+
+    If another exception occurs and reraise flag is False,
+    the saved exception will not be logged.
+
+    If the caller wants to raise new exception during exception handling
+    he/she sets reraise to False initially with an ability to set it back to
+    True if needed::
+
+      except Exception:
+          with save_and_reraise_exception(reraise=False) as ctxt:
+              [if statements to determine whether to raise a new exception]
+              # Not raising a new exception, so reraise
+              ctxt.reraise = True
+    """
+    def __init__(self, reraise=True, logger=None):
+        self.reraise = reraise
+        if logger is None:
+            logger = logging.getLogger()
+        self.logger = logger
+
+    def __enter__(self):
+        self.type_, self.value, self.tb, = sys.exc_info()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is not None:
+            if self.reraise:
+                self.logger.error('Original exception being dropped: %s',
+                                  traceback.format_exception(self.type_,
+                                                             self.value,
+                                                             self.tb))
+            return False
+        if self.reraise:
+            six.reraise(self.type_, self.value, self.tb)

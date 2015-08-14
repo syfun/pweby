@@ -33,7 +33,8 @@ import eventlet
 from eventlet import event
 
 from pweby import log as logging
-from pweby.utils import initialize_if_enabled, notify_once, ThreadGroup
+from pweby.utils import get_worker_count, initialize_if_enabled, \
+    notify_once, ThreadGroup
 
 LOG = logging.getLogger(__name__)
 
@@ -68,6 +69,7 @@ def _is_sighup_and_daemon(signo):
         # SIGHUP.
         return False
     return _is_daemon()
+
 
 def _signo_to_signame(signo):
     signals = {signal.SIGTERM: 'SIGTERM',
@@ -272,8 +274,8 @@ class ProcessLauncher(object):
 
         return pid
 
-    def launch_service(self, service, workers=1):
-        wrap = ServiceWrapper(service, workers)
+    def launch_service(self, service):
+        wrap = ServiceWrapper(service, get_worker_count())
 
         LOG.info('Starting %d workers', wrap.workers)
         while self.running and len(wrap.children) < wrap.workers:
