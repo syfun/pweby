@@ -24,4 +24,6 @@ class Hello(Application):
         return Response('Hello world!')
 
 server = Server(Hello)
-server.serve()
+launcher = ProcessLauncher()
+launcher.launch_service(server)
+launcher.wait()
