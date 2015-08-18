@@ -14,6 +14,8 @@
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
 
+from __future__ import print_function
+
 import errno
 import functools
 import gc
@@ -232,21 +234,6 @@ class ThreadGroup(object):
     def __init__(self, thread_pool_size=10):
         self.pool = greenpool.GreenPool(thread_pool_size)
         self.threads = []
-        self.timers = []
-
-    def add_dynamic_timer(self, callback, initial_delay=None,
-                          periodic_interval_max=None, *args, **kwargs):
-        timer = DynamicLoopingCall(callback, *args, **kwargs)
-        timer.start(initial_delay=initial_delay,
-                    periodic_interval_max=periodic_interval_max)
-        self.timers.append(timer)
-
-    def add_timer(self, interval, callback, initial_delay=None,
-                  *args, **kwargs):
-        pulse = FixedIntervalLoopingCall(callback, *args, **kwargs)
-        pulse.start(interval=interval,
-                    initial_delay=initial_delay)
-        self.timers.append(pulse)
 
     def add_thread(self, callback, *args, **kwargs):
         gt = self.pool.spawn(callback, *args, **kwargs)
@@ -271,14 +258,6 @@ class ThreadGroup(object):
             except Exception as ex:
                 LOG.exception(ex)
 
-    def stop_timers(self):
-        for x in self.timers:
-            try:
-                x.stop()
-            except Exception as ex:
-                LOG.exception(ex)
-        self.timers = []
-
     def stop(self, graceful=False):
         """stop function has the option of graceful=True/False.
 
@@ -286,7 +265,6 @@ class ThreadGroup(object):
           Never kill threads.
         * In case of graceful=False, kill threads immediately.
         """
-        self.stop_timers()
         if graceful:
             # In case of graceful=True, wait for all threads to be
             # finished, never kill threads
@@ -297,13 +275,6 @@ class ThreadGroup(object):
             self._stop_threads()
 
     def wait(self):
-        for x in self.timers:
-            try:
-                x.wait()
-            except eventlet.greenlet.GreenletExit:
-                pass
-            except Exception as ex:
-                LOG.exception(ex)
         current = threading.current_thread()
 
         # Iterate over a copy of self.threads so thread_done doesn't
@@ -428,6 +399,7 @@ def initialize_if_enabled():
         'pnt': _print_nativethreads,
     }
 
+    # need to config
     backdoor_port = None
     if backdoor_port is None:
         return None

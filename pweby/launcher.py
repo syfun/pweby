@@ -367,33 +367,6 @@ class ProcessLauncher(object):
                 self._wait_child()
 
 
-class Service(object):
-    """Service object for binaries running on hosts."""
-
-    def __init__(self, threads=1000):
-        self.tg = ThreadGroup(threads)
-
-        # signal that the service is done shutting itself down:
-        self._done = event.Event()
-
-    def reset(self):
-        # NOTE(Fengqian): docs for Event.reset() recommend against using it
-        self._done = event.Event()
-
-    def start(self):
-        pass
-
-    def stop(self):
-        self.tg.stop()
-        self.tg.wait()
-        # Signal that service cleanup is done:
-        if not self._done.ready():
-            self._done.send()
-
-    def wait(self):
-        self._done.wait()
-
-
 class Services(object):
 
     def __init__(self):

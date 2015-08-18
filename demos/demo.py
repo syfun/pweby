@@ -23,6 +23,7 @@ class Hello(Application):
     def hello(self, req):
         return Response('Hello world!')
 
+
 server = Server(Hello)
 launcher = ProcessLauncher()
 launcher.launch_service(server)
