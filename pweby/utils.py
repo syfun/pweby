@@ -34,13 +34,20 @@ import greenlet
 import six
 
 from pweby import log as logging
+from pweby.config import set_config
 
 
 LOG = logging.getLogger(__name__)
 
+config = {
+    # backdoor port, default is None.
+    'backdoor_port': None,
+}
+CONF = set_config(config_json=config)
 
 WRAPPER_ASSIGNMENTS = ('__module__', '__name__', '__doc__',
                        '_url', '_kwargs')
+
 
 
 def get_worker_count():
@@ -399,12 +406,10 @@ def initialize_if_enabled():
         'pnt': _print_nativethreads,
     }
 
-    # need to config
-    backdoor_port = None
-    if backdoor_port is None:
+    if CONF.backdoor_port is None:
         return None
 
-    start_port, end_port = _parse_port_range(str(backdoor_port))
+    start_port, end_port = _parse_port_range(str(CONF.backdoor_port))
 
     # NOTE(johannes): The standard sys.displayhook will print the value of
     # the last expression and set it to __builtin__._, which overwrites

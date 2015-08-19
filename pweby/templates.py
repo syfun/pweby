@@ -14,18 +14,24 @@
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
 
-from pweby import Application, route, Server, render, set_config
+from jinja2 import Environment, FileSystemLoader
+from pweby.wsgi import Response
+from pweby.log import getLogger
 
-CONF = set_config('pweby.yml')
-print CONF.conf
-
-
-class Hello(Application):
-
-    @route('/')
-    def hello(self, req, template_name='index.html'):
-        return render(template_name, name='world')
+LOG = getLogger(__name__)
 
 
-server = Server(Hello, host=CONF.host, port=CONF.port)
-server.serve()
+template_path = 'templates'
+env = Environment(loader=FileSystemLoader(template_path))
+
+
+def render(template_name=None, **kwargs):
+    if not template_name:
+        LOG.error('template_name has to not be None.')
+        raise Exception()
+    template = env.get_template(template_name)
+    source = template.render(**kwargs)
+    return Response(body=source)
+
+
+

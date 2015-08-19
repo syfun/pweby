@@ -14,18 +14,26 @@
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
 
-from pweby import Application, route, Server, render, set_config
-
-CONF = set_config('pweby.yml')
-print CONF.conf
+import yaml
 
 
-class Hello(Application):
+class Config(object):
 
-    @route('/')
-    def hello(self, req, template_name='index.html'):
-        return render(template_name, name='world')
+    def __init__(self):
+        self.conf = {}
+
+    def __getattr__(self, item):
+        return self.conf.get(item, None)
 
 
-server = Server(Hello, host=CONF.host, port=CONF.port)
-server.serve()
+CONF = Config()
+
+
+def set_config(config_file=None, config_json=None):
+    if config_file:
+        with open(config_file) as f:
+            yml = yaml.load(f)
+            CONF.conf.update(yml)
+    if config_json:
+        CONF.conf.update(config_json)
+    return CONF

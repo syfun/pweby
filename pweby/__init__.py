@@ -18,12 +18,14 @@ import eventlet
 eventlet.monkey_patch()
 
 from pweby import log as logging
+from pweby.config import set_config
 from pweby.launcher import ProcessLauncher
+from pweby.templates import render
 from pweby.wsgi import Application, Response, Server
 from pweby.utils import route
 
 
 version = '0.1.2'
 
-
-__all__ = ['Application', 'logging', 'ProcessLauncher', 'Response', 'route', 'Server', 'version']
+__all__ = ['Application', 'logging', 'ProcessLauncher', 'Response',
+           'route', 'Server', 'version', 'set_config']

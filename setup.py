@@ -17,18 +17,17 @@
 from setuptools import setup, find_packages
 
 
-__version__ = "0.1.2"
-
 setup(
     name="pweby",
-    version=__version__,
+    version='0.1.2',
     packages=find_packages(),
     install_requires=[
         "Routes",
         "eventlet",
         "greenlet",
         "six",
-        "webob"
+        "webob",
+        "jinja2",
     ],
     author='Syfun',
     author_email='sunyu418@gmail.com',

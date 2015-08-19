@@ -3,3 +3,5 @@ eventlet
 greenlet
 six
 webob
+jinja2
+PyYAML
